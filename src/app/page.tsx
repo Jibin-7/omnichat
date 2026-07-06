@@ -378,28 +378,37 @@ export default function Home() {
     };
 
     const deriveShared = async (otherUser: string) => {
-       if (sharedSecretsRef.current[otherUser]) return sharedSecretsRef.current[otherUser];
-       const userObj = usersRef.current.find(u => u.username === otherUser);
-       if (!userObj || !keyPairRef.current) return null;
-       const theirPubKey = await importPublicKey(userObj.publicKey);
-       const secret = await deriveSecretKey(keyPairRef.current.privateKey, theirPubKey);
-       sharedSecretsRef.current[otherUser] = secret;
-       return secret;
+       try {
+          if (sharedSecretsRef.current[otherUser]) return sharedSecretsRef.current[otherUser];
+          const userObj = usersRef.current.find(u => u.username === otherUser);
+          if (!userObj || !keyPairRef.current || !userObj.publicKey) return null;
+          const theirPubKey = await importPublicKey(userObj.publicKey);
+          const secret = await deriveSecretKey(keyPairRef.current.privateKey, theirPubKey);
+          sharedSecretsRef.current[otherUser] = secret;
+          return secret;
+       } catch (e) {
+          console.error("Failed to derive shared secret for", otherUser, e);
+          return null;
+       }
     };
 
     socket.on("sync_groups", async (syncedGroups: any[]) => {
        const loadedGroups: Group[] = [];
        const loadedMembers: Record<string, GroupMember[]> = {};
        for (const g of syncedGroups) {
-          loadedGroups.push({ id: g.groupId, name: g.name, isGroup: true, isChannel: g.isChannel, admin: g.admin, isDeleted: g.isDeleted, hasLeft: g.status === "left" });
-          loadedMembers[g.groupId] = g.members;
-          if (g.status === "accepted" && !g.isDeleted && g.encryptedGroupKey) {
-             const secret = await deriveShared(g.admin);
-             if (secret) {
-                const groupKeyBase64 = await decryptMessage(g.encryptedGroupKey, g.iv, secret);
-                groupKeysRef.current[g.groupId] = await importGroupKey(groupKeyBase64);
+          try {
+             loadedGroups.push({ id: g.groupId, name: g.name, isGroup: true, isChannel: g.isChannel, admin: g.admin, isDeleted: g.isDeleted, hasLeft: g.status === "left" });
+             loadedMembers[g.groupId] = g.members;
+             if (g.status === "accepted" && !g.isDeleted && g.encryptedGroupKey) {
+                const secret = await deriveShared(g.admin);
+                if (secret) {
+                   const groupKeyBase64 = await decryptMessage(g.encryptedGroupKey, g.iv, secret);
+                   if (groupKeyBase64 && !groupKeyBase64.includes("[Encrypted Message")) {
+                      groupKeysRef.current[g.groupId] = await importGroupKey(groupKeyBase64);
+                   }
+                }
              }
-          }
+          } catch(e) { console.error("Error syncing group", g.groupId, e); }
        }
        setGroups(loadedGroups); setGroupMembersMap(loadedMembers);
     });
@@ -412,68 +421,74 @@ export default function Home() {
        await new Promise(resolve => setTimeout(resolve, 500));
        const newChats: Record<string, ChatMessage[]> = {};
        for (const msg of history) {
-          if (msg.isDeleted) continue;
-          if (msg.type === "1on1") {
-             const otherUser = msg.from === myUsername.current ? msg.to : msg.from;
-             const secret = await deriveShared(otherUser);
-             if (secret) {
-                const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
-                if (!newChats[otherUser]) newChats[otherUser] = [];
-                newChats[otherUser].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, read: msg.read, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode });
+          try {
+             if (msg.isDeleted) continue;
+             if (msg.type === "1on1") {
+                const otherUser = msg.from === myUsername.current ? msg.to : msg.from;
+                const secret = await deriveShared(otherUser);
+                if (secret) {
+                   const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
+                   if (!newChats[otherUser]) newChats[otherUser] = [];
+                   newChats[otherUser].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, read: msg.read, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode });
+                }
+             } else {
+                if (msg.isSystem) {
+                   if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
+                   newChats[msg.groupId].push({ id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp });
+                   continue;
+                }
+                const groupKey = groupKeysRef.current[msg.groupId];
+                if (groupKey) {
+                   const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
+                   if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
+                   newChats[msg.groupId].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo });
+                }
              }
-          } else {
-             if (msg.isSystem) {
-                if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
-                newChats[msg.groupId].push({ id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp });
-                continue;
-             }
-             const groupKey = groupKeysRef.current[msg.groupId];
-             if (groupKey) {
-                const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
-                if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
-                newChats[msg.groupId].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo });
-             }
-          }
+          } catch(e) { console.error("Error parsing msg", msg.id, e); }
        }
        setChats(newChats);
     });
 
     const handleReceiveMessage = async (msg: any) => {
-      const otherUser = msg.from;
-      const secret = await deriveShared(otherUser);
-      if (secret) {
-        const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
-        setChats(prev => ({ ...prev, [otherUser]: [...(prev[otherUser] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: otherUser, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode }] }));
-        unhideChatLocally(otherUser);
-        if (activeChatIdRef.current === otherUser && document.visibilityState === "visible") {
-           socket.emit("messages_read", { to: otherUser });
+      try {
+        const otherUser = msg.from;
+        const secret = await deriveShared(otherUser);
+        if (secret) {
+          const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
+          setChats(prev => ({ ...prev, [otherUser]: [...(prev[otherUser] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: otherUser, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode }] }));
+          unhideChatLocally(otherUser);
+          if (activeChatIdRef.current === otherUser && document.visibilityState === "visible") {
+             socket.emit("messages_read", { to: otherUser });
+          }
+          setUnreadCounts(prev => {
+            if (activeChatIdRef.current === otherUser && document.visibilityState === "visible") return prev;
+            triggerWebNotification(`Message from ${otherUser}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
+            return { ...prev, [otherUser]: (prev[otherUser] || 0) + 1 };
+          });
         }
-        setUnreadCounts(prev => {
-          if (activeChatIdRef.current === otherUser && document.visibilityState === "visible") return prev;
-          triggerWebNotification(`Message from ${otherUser}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
-          return { ...prev, [otherUser]: (prev[otherUser] || 0) + 1 };
-        });
-      }
+      } catch(e) { console.error("Error in handleReceiveMessage", e); }
     };
 
     const handleReceiveGroupMessage = async (msg: any) => {
-      if (msg.isSystem) {
-        setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp }] }));
-        return;
-      }
-      const groupKey = groupKeysRef.current[msg.groupId];
-      if (groupKey) {
-        const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
-        setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo }] }));
-        unhideChatLocally(msg.groupId);
-        setUnreadCounts(prev => {
-          if (activeChat && "isGroup" in activeChat && activeChat.id === msg.groupId && document.visibilityState === "visible") return prev;
-          triggerWebNotification(`Group message from ${msg.from}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
-          return { ...prev, [msg.groupId]: (prev[msg.groupId] || 0) + 1 };
-        });
-      } else {
-        alert("CRITICAL ERROR: groupKey is missing in handleReceiveGroupMessage! msg.groupId: " + msg.groupId);
-      }
+      try {
+        if (msg.isSystem) {
+          setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp }] }));
+          return;
+        }
+        const groupKey = groupKeysRef.current[msg.groupId];
+        if (groupKey) {
+          const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
+          setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo }] }));
+          unhideChatLocally(msg.groupId);
+          setUnreadCounts(prev => {
+            if (activeChatIdRef.current === msg.groupId && document.visibilityState === "visible") return prev;
+            triggerWebNotification(`Group message from ${msg.from}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
+            return { ...prev, [msg.groupId]: (prev[msg.groupId] || 0) + 1 };
+          });
+        } else {
+          console.error("CRITICAL ERROR: groupKey is missing in handleReceiveGroupMessage! msg.groupId: " + msg.groupId);
+        }
+      } catch(e) { console.error("Error in handleReceiveGroupMessage", e); }
     };
 
     const handleMessageDeleted = (data: { messageId: string, chatId: string, isVanishMode?: boolean }) => {

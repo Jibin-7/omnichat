@@ -115,11 +115,11 @@ export async function encryptMessage(text: string, secretKey: CryptoKey): Promis
 
 // 6. Decrypt a message
 export async function decryptMessage(ciphertextBase64: string, ivBase64: string, secretKey: CryptoKey): Promise<string> {
-  const dec = new TextDecoder();
-  const ciphertextBytes = base64ToUint8Array(ciphertextBase64);
-  const ivBytes = base64ToUint8Array(ivBase64);
-  
   try {
+    if (!ciphertextBase64 || !ivBase64) throw new Error("Missing ciphertext or iv");
+    const dec = new TextDecoder();
+    const ciphertextBytes = base64ToUint8Array(ciphertextBase64);
+    const ivBytes = base64ToUint8Array(ivBase64);
     const decrypted = await window.crypto.subtle.decrypt(
       { name: "AES-GCM", iv: ivBytes as any },
       secretKey, ciphertextBytes as any
