@@ -22,7 +22,8 @@ app.prepare().then(async () => {
   });
 
   const io = new Server(httpServer, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: { origin: "*", methods: ["GET", "POST"] },
+    maxHttpBufferSize: 1e8 // 100MB
   });
 
   const emitToUser = (username, event, payload) => {

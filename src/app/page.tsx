@@ -430,18 +430,25 @@ export default function Home() {
                    const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
                    if (!newChats[otherUser]) newChats[otherUser] = [];
                    newChats[otherUser].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, read: msg.read, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode });
+                } else {
+                   if (!newChats[otherUser]) newChats[otherUser] = [];
+                   newChats[otherUser].push({ id: msg.id, text: "[Encrypted Message - Missing Key]", sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, read: msg.read, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode });
                 }
              } else {
+                const actualGroupId = msg.groupId || msg.to;
                 if (msg.isSystem) {
-                   if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
-                   newChats[msg.groupId].push({ id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp });
+                   if (!newChats[actualGroupId]) newChats[actualGroupId] = [];
+                   newChats[actualGroupId].push({ id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp });
                    continue;
                 }
-                const groupKey = groupKeysRef.current[msg.groupId];
+                const groupKey = groupKeysRef.current[actualGroupId];
                 if (groupKey) {
                    const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
-                   if (!newChats[msg.groupId]) newChats[msg.groupId] = [];
-                   newChats[msg.groupId].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo });
+                   if (!newChats[actualGroupId]) newChats[actualGroupId] = [];
+                   newChats[actualGroupId].push({ id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo });
+                } else {
+                   if (!newChats[actualGroupId]) newChats[actualGroupId] = [];
+                   newChats[actualGroupId].push({ id: msg.id, text: "[Encrypted Group Message - Missing Key]", sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo });
                 }
              }
           } catch(e) { console.error("Error parsing msg", msg.id, e); }
@@ -465,28 +472,33 @@ export default function Home() {
             triggerWebNotification(`Message from ${otherUser}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
             return { ...prev, [otherUser]: (prev[otherUser] || 0) + 1 };
           });
+        } else {
+          setChats(prev => ({ ...prev, [otherUser]: [...(prev[otherUser] || []), { id: msg.id, text: "[Encrypted Message - Missing Key]", sender: otherUser, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode }] }));
+          unhideChatLocally(otherUser);
         }
       } catch(e) { console.error("Error in handleReceiveMessage", e); }
     };
 
     const handleReceiveGroupMessage = async (msg: any) => {
       try {
+        const actualGroupId = msg.groupId || msg.to;
         if (msg.isSystem) {
-          setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp }] }));
+          setChats(prev => ({ ...prev, [actualGroupId]: [...(prev[actualGroupId] || []), { id: msg.id, text: msg.text, sender: "system", isSystem: true, timestamp: msg.timestamp }] }));
           return;
         }
-        const groupKey = groupKeysRef.current[msg.groupId];
+        const groupKey = groupKeysRef.current[actualGroupId];
         if (groupKey) {
           const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, groupKey);
-          setChats(prev => ({ ...prev, [msg.groupId]: [...(prev[msg.groupId] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo }] }));
-          unhideChatLocally(msg.groupId);
+          setChats(prev => ({ ...prev, [actualGroupId]: [...(prev[actualGroupId] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo }] }));
+          unhideChatLocally(actualGroupId);
           setUnreadCounts(prev => {
-            if (activeChatIdRef.current === msg.groupId && document.visibilityState === "visible") return prev;
+            if (activeChatIdRef.current === actualGroupId && document.visibilityState === "visible") return prev;
             triggerWebNotification(`Group message from ${msg.from}`, text || (image ? "Sent an image" : (audio ? "Sent a voice note" : "Sent an attachment")));
-            return { ...prev, [msg.groupId]: (prev[msg.groupId] || 0) + 1 };
+            return { ...prev, [actualGroupId]: (prev[actualGroupId] || 0) + 1 };
           });
         } else {
-          console.error("CRITICAL ERROR: groupKey is missing in handleReceiveGroupMessage! msg.groupId: " + msg.groupId);
+          setChats(prev => ({ ...prev, [actualGroupId]: [...(prev[actualGroupId] || []), { id: msg.id, text: "[Encrypted Group Message - Missing Key]", sender: msg.from === myUsername.current ? "me" : msg.from, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo }] }));
+          unhideChatLocally(actualGroupId);
         }
       } catch(e) { console.error("Error in handleReceiveGroupMessage", e); }
     };
@@ -1086,9 +1098,8 @@ export default function Home() {
                 </div>
               ))}
 
-              {[...new Set(Object.keys(chats).filter(k => friends.includes(k) && !hiddenChats.includes(k)))].filter(f => !searchQuery || f.toLowerCase().includes(searchQuery.toLowerCase())).map(fName => {
-                const userObj = users.find(u => u.username === fName);
-                if (!userObj) return null;
+              {[...new Set(Object.keys(chats).filter(k => !hiddenChats.includes(k)))].filter(f => !searchQuery || f.toLowerCase().includes(searchQuery.toLowerCase())).map(fName => {
+                const userObj = users.find(u => u.username === fName) || { username: fName, publicKey: "" };
                 return (
                 <div key={fName} onMouseLeave={() => setShowChatContextMenuFor(null)} style={{ position: "relative" }}>
                   <div onClick={() => handleSelectChat(userObj)} onContextMenu={(e) => { e.preventDefault(); setShowChatContextMenuFor(fName); }} style={{ display: "flex", alignItems: "center", padding: "12px", borderRadius: "var(--radius-md)", backgroundColor: activeChatId === fName ? "var(--bg-color-tertiary)" : "transparent", cursor: "pointer", transition: "background 0.2s" }} onMouseOver={e => { if (activeChatId !== fName) e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.05)"; }} onMouseOut={e => { if (activeChatId !== fName) e.currentTarget.style.backgroundColor = "transparent"; }}>
