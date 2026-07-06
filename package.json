@@ -6,9 +6,12 @@
     "dev": "node server.js",
     "build": "next build",
     "start": "cross-env NODE_ENV=production node server.js",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:mobile": "cross-env CAPACITOR_BUILD=true next build && npx cap copy android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "framer-motion": "^12.42.2",
@@ -22,6 +25,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

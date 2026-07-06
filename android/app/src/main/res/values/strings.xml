@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OmniChat</string>
+    <string name="title_activity_main">OmniChat</string>
+    <string name="package_name">com.omnichat.app</string>
+    <string name="custom_url_scheme">com.omnichat.app</string>
+</resources>

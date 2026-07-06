@@ -77,6 +77,14 @@ app.prepare().then(async () => {
       }
     });
 
+    socket.on("update_pin", async ({ phone, pinHash, encryptedPrivateKey, iv }) => {
+      try {
+        await User.updateOne({ phone }, { $set: { pinHash, encryptedPrivateKey, iv } });
+      } catch (e) {
+        console.error("Failed to update pin", e);
+      }
+    });
+
     socket.on("auth_success", async ({ username }) => {
       if (!activeUsers.has(username)) activeUsers.set(username, new Set());
       activeUsers.get(username).add(socket.id);

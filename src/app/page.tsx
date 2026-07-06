@@ -248,7 +248,7 @@ export default function Home() {
 
   // Connect & Auto-Login
   useEffect(() => {
-    const socketInstance = io();
+    const socketInstance = io(process.env.NEXT_PUBLIC_API_URL || undefined);
     socketInstance.on("connect", () => {
       setIsConnected(true);
       const cached = localStorage.getItem("omnichat_identity");
@@ -284,7 +284,7 @@ export default function Home() {
   // ----------------------------------------------------
   useEffect(() => {
     if (!socket) return;
-    socket.on("register_error", ({ message }) => { setAuthError(message); setAuthStep("phone"); });
+    socket.on("register_error", (message: string) => { setAuthError(message); setAuthStep("phone"); });
     socket.on("register_success", async () => {
       if (!keyPairRef.current) return;
       const pubStr = await exportPublicKey(keyPairRef.current.publicKey);
@@ -297,8 +297,8 @@ export default function Home() {
       try { const hidden = localStorage.getItem(`omnichat_hidden_${username}`); if (hidden) setHiddenChats(JSON.parse(hidden)); } catch(e){}
     });
 
-    socket.on("login_error", ({ message }) => { setAuthError(message); setAuthStep("phone"); });
-    socket.on("login_challenge", async ({ encryptedPrivateKey, iv, username: uname }) => {
+    socket.on("login_error", (message: string) => { setAuthError(message); setAuthStep("phone"); });
+    socket.on("login_success", async ({ encryptedPrivateKey, iv, username: uname }) => {
       try {
         const backupKey = await deriveBackupKey(pin, phone);
         const privateKey = await importEncryptedPrivateKey(encryptedPrivateKey, iv, backupKey);
@@ -318,7 +318,7 @@ export default function Home() {
       } catch (e) { setAuthError("Incorrect PIN."); setAuthStep("pin"); }
     });
 
-    return () => { socket.off("register_error"); socket.off("register_success"); socket.off("login_error"); socket.off("login_challenge"); };
+    return () => { socket.off("register_error"); socket.off("register_success"); socket.off("login_error"); socket.off("login_success"); };
   }, [socket, username, phone, pin]);
 
   const proceedToPin = (e: React.FormEvent) => {
@@ -339,9 +339,11 @@ export default function Home() {
       const pubStr = await exportPublicKey(keys.publicKey);
       const backupKey = await deriveBackupKey(pin, phone);
       const { encrypted, iv } = await exportEncryptedPrivateKey(keys.privateKey, backupKey);
-      socket.emit("register_identity", { phone, username, publicKey: pubStr, encryptedPrivateKey: encrypted, iv });
+      const digestBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+      const pinHash = Array.from(new Uint8Array(digestBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      socket.emit("register", { phone, username, pinHash, publicKey: pubStr, encryptedPrivateKey: encrypted, iv });
     } else {
-      socket.emit("login_identity", { phone });
+      socket.emit("login", { phone });
     }
   };
 
@@ -353,7 +355,9 @@ export default function Home() {
       // We just encrypt their current PrivateKey with the NEW PIN.
       const backupKey = await deriveBackupKey(newPin, phone);
       const { encrypted, iv } = await exportEncryptedPrivateKey(keyPairRef.current.privateKey, backupKey);
-      socket.emit("update_pin", { phone, encryptedPrivateKey: encrypted, iv });
+      const digestBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(newPin));
+      const pinHash = Array.from(new Uint8Array(digestBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      socket.emit("update_pin", { phone, pinHash, encryptedPrivateKey: encrypted, iv });
       setPinUpdateStatus("PIN Updated Successfully!");
       setTimeout(() => setShowUpdatePin(false), 2000);
     } catch(e) { setPinUpdateStatus("Error updating PIN."); }
@@ -815,8 +819,7 @@ export default function Home() {
 
   const handleReact = (msgId: string, reaction: string) => {
     if (!activeChat || !socket) return;
-    if ("isGroup" in activeChat) socket.emit("react_group_message", { groupId: activeChat.id, messageId: msgId, reaction });
-    else socket.emit("react_message", { to: activeChat.username, messageId: msgId, reaction });
+    socket.emit("reaction", { messageId: msgId, chatId: "isGroup" in activeChat ? activeChat.id : activeChat.username, reaction });
     setShowReactionsFor(null);
     setShowContextMenuFor(null);
   };
@@ -1088,7 +1091,7 @@ export default function Home() {
                   {showChatContextMenuFor === fName && (
                     <div className="glass-panel" style={{ position: "absolute", top: "50%", right: "12px", transform: "translateY(-50%)", display: "flex", flexDirection: "column", padding: "8px", borderRadius: "var(--radius-md)", zIndex: 50, minWidth: "160px", boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
                       <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete chat with ${fName}?`)) { socket?.emit("clear_chat", { chatId: fName, isGroup: false }); hideChatLocally(fName); setShowChatContextMenuFor(null); if(activeChatId === fName) setActiveChat(null); } }} style={{ background: "none", border: "none", color: "white", padding: "10px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", borderRadius: "4px" }} onMouseOver={e=>e.currentTarget.style.backgroundColor="rgba(255,255,255,0.1)"} onMouseOut={e=>e.currentTarget.style.backgroundColor="transparent"}><Trash2 size={16}/> Delete Chat</button>
-                      <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove ${fName} from friends?`)) { socket?.emit("remove_friend", { username: fName }); setShowChatContextMenuFor(null); if(activeChatId === fName) setActiveChat(null); } }} style={{ background: "none", border: "none", color: "var(--danger-color)", padding: "10px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", borderRadius: "4px" }} onMouseOver={e=>e.currentTarget.style.backgroundColor="rgba(239,68,68,0.1)"} onMouseOut={e=>e.currentTarget.style.backgroundColor="transparent"}><UserMinus size={16}/> Unfriend</button>
+                      <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove ${fName} from friends?`)) { socket?.emit("remove_friend", { target: fName }); setShowChatContextMenuFor(null); if(activeChatId === fName) setActiveChat(null); } }} style={{ background: "none", border: "none", color: "var(--danger-color)", padding: "10px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", borderRadius: "4px" }} onMouseOver={e=>e.currentTarget.style.backgroundColor="rgba(239,68,68,0.1)"} onMouseOut={e=>e.currentTarget.style.backgroundColor="transparent"}><UserMinus size={16}/> Unfriend</button>
                     </div>
                   )}
                 </div>
@@ -1126,7 +1129,7 @@ export default function Home() {
                     </div>
                     <span style={{ color: "white", flex: 1, fontSize: "15px" }}>{u.username}</span>
                     <button 
-                       onClick={() => { if(socket && !isSent) socket.emit("send_friend_request", { to: u.username }); }} 
+                       onClick={() => { if(socket && !isSent) socket.emit("add_friend", { target: u.username }); }} 
                        style={{ padding: "6px 12px", borderRadius: "var(--radius-full)", backgroundColor: isSent ? "var(--bg-color-secondary)" : "var(--primary-color)", color: isSent ? "var(--text-muted)" : "white", border: isSent ? "1px solid var(--border-color)" : "none", cursor: isSent ? "default" : "pointer", fontSize: "12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}
                        disabled={isSent}
                     >
@@ -1178,8 +1181,8 @@ export default function Home() {
                                <span style={{ color: "white", flex: 1, fontSize: "15px", fontWeight: "500" }}>{reqName}</span>
                             </div>
                             <div style={{ display: "flex", gap: "8px" }}>
-                               <button onClick={() => { if(socket) socket.emit("accept_friend_request", { from: reqName }); }} className="button-primary" style={{ flex: 1, padding: "8px", fontSize: "13px" }}>Accept</button>
-                               <button onClick={() => { if(socket) socket.emit("reject_friend_request", { from: reqName }); }} style={{ flex: 1, padding: "8px", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--danger-color)", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: "500" }}>Delete</button>
+                               <button onClick={() => { if(socket) socket.emit("accept_friend", { target: reqName }); }} className="button-primary" style={{ flex: 1, padding: "8px", fontSize: "13px" }}>Accept</button>
+                               <button onClick={() => { if(socket) socket.emit("reject_friend", { target: reqName }); }} style={{ flex: 1, padding: "8px", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--danger-color)", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: "500" }}>Delete</button>
                             </div>
                           </div>
                        ))}
@@ -1656,7 +1659,7 @@ export default function Home() {
              <div style={{ padding: "32px", color: "var(--text-muted)", fontSize: "15px", lineHeight: "1.6", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
                <Shield size={40} color="var(--primary-color)" style={{ opacity: 0.5 }} />
                <p>This is a secure 1-on-1 End-to-End Encrypted conversation.</p>
-               <button onClick={() => { if (socket && !("isGroup" in activeChat)) { socket.emit("remove_friend", { username: activeChat.username }); setShowDetails(false); setActiveChat(null); } }} style={{ marginTop: "32px", padding: "12px", width: "100%", borderRadius: "var(--radius-md)", border: "1px solid rgba(239, 68, 68, 0.3)", color: "var(--danger-color)", backgroundColor: "rgba(239, 68, 68, 0.1)", cursor: "pointer", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", fontWeight: "600" }}><UserX size={18}/> Remove Friend</button>
+               <button onClick={() => { if (socket && !("isGroup" in activeChat)) { socket.emit("remove_friend", { target: activeChat.username }); setShowDetails(false); setActiveChat(null); } }} style={{ marginTop: "32px", padding: "12px", width: "100%", borderRadius: "var(--radius-md)", border: "1px solid rgba(239, 68, 68, 0.3)", color: "var(--danger-color)", backgroundColor: "rgba(239, 68, 68, 0.1)", cursor: "pointer", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", fontWeight: "600" }}><UserX size={18}/> Remove Friend</button>
              </div>
              )
           ) : (
