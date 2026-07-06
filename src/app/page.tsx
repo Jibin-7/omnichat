@@ -140,6 +140,7 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [detailsTab, setDetailsTab] = useState<"info" | "media">("info");
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+  const usersRef = useRef<User[]>([]);
   
   const hideChatLocally = (chatId: string) => {
     setHiddenChats(prev => {
@@ -271,13 +272,12 @@ export default function Home() {
     });
     
     socketInstance.on("disconnect", () => setIsConnected(false));
-    socketInstance.on("users_update", (updatedUsers: User[]) => setUsers(updatedUsers));
+    socketInstance.on("users_update", (updatedUsers: User[]) => { setUsers(updatedUsers); usersRef.current = updatedUsers; });
     setSocket(socketInstance);
     return () => { socketInstance.disconnect(); };
   }, []);
 
-  const usersRef = useRef(users);
-  useEffect(() => { usersRef.current = users; }, [users]);
+
 
   // ----------------------------------------------------
   // AUTHENTICATION LOGIC
@@ -409,6 +409,7 @@ export default function Home() {
     });
 
     socket.on("chat_history", async (history: any[]) => {
+       await new Promise(resolve => setTimeout(resolve, 500));
        const newChats: Record<string, ChatMessage[]> = {};
        for (const msg of history) {
           if (msg.isDeleted) continue;
@@ -628,7 +629,7 @@ export default function Home() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: isVideo, 
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 } 
+        audio: true 
       });
       setLocalStream(stream); return stream; } 
     catch(e) { console.error("Media Error", e); return null; }
