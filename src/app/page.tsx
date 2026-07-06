@@ -9,11 +9,11 @@ import {
   exportPrivateKey, importPrivateKey
 } from "../lib/crypto";
 
-type User = { username: string; publicKey: string };
-type GroupMember = { username: string; status: "pending" | "accepted" };
+type User = { username: string; publicKey: string; avatar?: string; bio?: string; online?: boolean; lastSeen?: number | null; vanishMode?: boolean };
+type GroupMember = { username: string; status: "pending" | "accepted" | "left" };
 type Group = { id: string; name: string; isGroup: true; isChannel?: boolean; admin: string; isDeleted?: boolean; hasLeft?: boolean };
 type PendingInvite = { groupId: string; name: string; createdBy: string; isChannel?: boolean };
-type ChatMessage = { id: string; text: string; image?: string; audio?: string; file?: { name: string, url: string, size: number }; sender: "me" | "them" | "system" | string; isSystem?: boolean; timestamp: number; read?: boolean; reaction?: string; reactionBy?: string; isDeleted?: boolean; isEdited?: boolean; replyTo?: string };
+type ChatMessage = { id: string; text: string; image?: string; audio?: string; file?: { name: string, data: string, size: number }; sender: "me" | "them" | "system" | string; isSystem?: boolean; timestamp: number; read?: boolean; reaction?: string; reactionBy?: string; isDeleted?: boolean; isEdited?: boolean; replyTo?: string; isVanishMode?: boolean };
 
 type CallState = {
   isActive: boolean;
@@ -720,7 +720,7 @@ export default function Home() {
     }
   };
 
-  const sendPayload = async (text: string, base64Image?: string, audio?: string, file?: { name: string, url: string, size: number }) => {
+  const sendPayload = async (text: string, base64Image?: string, audio?: string, file?: { name: string, data: string, size: number }) => {
     if (!activeChat || !socket) return;
     const chatId = "isGroup" in activeChat ? activeChat.id : activeChat.username;
     const msgId = Date.now().toString();
@@ -807,7 +807,7 @@ export default function Home() {
       if (file.type.startsWith('image/')) {
         await sendPayload("", reader.result as string);
       } else {
-        await sendPayload("", undefined, undefined, { name: file.name, url: reader.result as string, size: file.size });
+        await sendPayload("", undefined, undefined, { name: file.name, data: reader.result as string, size: file.size });
       }
     };
     reader.readAsDataURL(file); if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1364,7 +1364,7 @@ export default function Home() {
                             {msg.image && <img src={msg.image} alt="Media" style={{ width: "100%", maxHeight: "300px", objectFit: "cover", borderRadius: "8px", marginBottom: msg.text || msg.file ? "8px" : "0" }} />}
                             {msg.audio && <VoiceMessagePlayer src={msg.audio} />}
                             {msg.file && (
-                              <a href={msg.file.url} download={msg.file.name} style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "12px", textDecoration: "none", color: "white", marginBottom: msg.text ? "8px" : "0", border: "1px solid rgba(255,255,255,0.1)" }}>
+                              <a href={msg.file.data} download={msg.file.name} style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: "rgba(0,0,0,0.2)", padding: "12px", borderRadius: "12px", textDecoration: "none", color: "white", marginBottom: msg.text ? "8px" : "0", border: "1px solid rgba(255,255,255,0.1)" }}>
                                 <div style={{ backgroundColor: "var(--primary-color)", padding: "8px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                                   <FileText size={20} />
                                 </div>
@@ -1665,8 +1665,8 @@ export default function Home() {
                 {activeMessages.filter(m => m.image || m.file || m.audio).reverse().map((m, i) => (
                    <div key={i} style={{ width: "100%", aspectRatio: "1/1", borderRadius: "8px", backgroundColor: "var(--bg-color-tertiary)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", border: "1px solid var(--border-color)" }}>
                      {m.image && <img src={m.image} alt="Media" style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} onClick={() => window.open(m.image, "_blank")} />}
-                     {m.file && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", padding: "8px", color: "var(--text-muted)", cursor: "pointer", width: "100%", height: "100%", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.05)" }} onClick={() => { const a = document.createElement("a"); a.href = m.file.data; a.download = m.file.name; a.click(); }}><FileText size={24} /><span style={{ fontSize: "10px", textAlign: "center", wordBreak: "break-all", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{m.file.name}</span></div>}
-                     {m.audio && <div style={{ color: "var(--primary-color)", cursor: "pointer", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.05)" }} onClick={() => { const a = document.createElement("a"); a.href = m.audio; a.download = "VoiceNote.webm"; a.click(); }}><Mic size={24} /></div>}
+                     {m.file && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", padding: "8px", color: "var(--text-muted)", cursor: "pointer", width: "100%", height: "100%", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.05)" }} onClick={() => { const a = document.createElement("a"); a.href = m.file?.data || ""; a.download = m.file?.name || ""; a.click(); }}><FileText size={24} /><span style={{ fontSize: "10px", textAlign: "center", wordBreak: "break-all", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{m.file.name}</span></div>}
+                     {m.audio && <div style={{ color: "var(--primary-color)", cursor: "pointer", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.05)" }} onClick={() => { const a = document.createElement("a"); a.href = m.audio || ""; a.download = "VoiceNote.webm"; a.click(); }}><Mic size={24} /></div>}
                    </div>
                 ))}
              </div>

@@ -121,8 +121,8 @@ export async function decryptMessage(ciphertextBase64: string, ivBase64: string,
   
   try {
     const decrypted = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      secretKey, ciphertextBytes
+      { name: "AES-GCM", iv: ivBytes as any },
+      secretKey, ciphertextBytes as any
     );
     return dec.decode(decrypted);
   } catch (e) {
@@ -177,8 +177,8 @@ export async function importEncryptedPrivateKey(encryptedBase64: string, ivBase6
   const ivBytes = base64ToUint8Array(ivBase64);
   
   const decryptedPriv = await window.crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: ivBytes },
-    backupKey, ciphertextBytes
+    { name: "AES-GCM", iv: ivBytes as any },
+    backupKey, ciphertextBytes as any
   );
   
   return await window.crypto.subtle.importKey(
