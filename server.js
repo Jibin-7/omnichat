@@ -546,6 +546,20 @@ app.prepare().then(async () => {
         });
       }
     });
+    socket.on("delete_account", async () => {
+       const username = socketToUser.get(socket.id);
+       if (!username) return;
+       try {
+         await User.deleteOne({ username });
+         const groups = await Group.find({ "members.username": username });
+         for (const group of groups) {
+            group.members = group.members.filter(m => m.username !== username);
+            await group.save();
+         }
+         await VanishMode.deleteMany({ key: new RegExp(`(^|:)${username}(:|$)`) });
+         socket.emit("account_deleted");
+       } catch (e) { console.error("Error deleting account", e); }
+    });
 
     socket.on("disconnect", async () => {
       console.log(`Client disconnected: ${socket.id}`);

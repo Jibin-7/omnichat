@@ -298,6 +298,12 @@ export default function Home() {
     });
 
     socket.on("login_error", (message: string) => { setAuthError(message); setAuthStep("phone"); });
+    
+    socket.on("account_deleted", () => {
+       alert("Account successfully deleted.");
+       localStorage.removeItem("omnichat_identity");
+       window.location.reload();
+    });
     socket.on("login_success", async ({ encryptedPrivateKey, iv, username: uname }) => {
       try {
         const backupKey = await deriveBackupKey(pin, phone);
@@ -764,7 +770,7 @@ export default function Home() {
       const groupKey = groupKeysRef.current[activeChat.id];
       if (groupKey) {
         const { ciphertext, iv } = await encryptMessage(payload, groupKey);
-        socket.emit("send_group_message", { id: msgId, groupId: activeChat.id, ciphertext, iv, replyTo: replyContext });
+        socket.emit("send_group_message", { id: msgId, groupId: activeChat.id, ciphertext, iv, replyTo: replyContext, timestamp: newMsg.timestamp });
       } else {
         alert("CRITICAL ERROR: groupKey is missing in sendPayload! activeChat.id: " + activeChat.id);
       }
@@ -772,7 +778,7 @@ export default function Home() {
       const secret = await deriveSecretKey(keyPairRef.current!.privateKey, await importPublicKey(activeChat.publicKey));
       const { ciphertext, iv } = await encryptMessage(payload, secret);
       const isVanishMode = vanishModes[activeChat.username];
-      socket.emit("send_message", { id: msgId, to: activeChat.username, ciphertext, iv, replyTo: replyContext, isVanishMode });
+      socket.emit("send_message", { id: msgId, to: activeChat.username, ciphertext, iv, replyTo: replyContext, isVanishMode, timestamp: newMsg.timestamp });
     }
   };
 
@@ -1304,6 +1310,10 @@ export default function Home() {
                  
               <button onClick={handleLogout} style={{ padding: "16px", backgroundColor: "rgba(239, 68, 68, 0.1)", color: "var(--danger-color)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "all 0.2s" }} onMouseOver={e => e.currentTarget.style.backgroundColor = "var(--danger-color)"} onMouseOut={e => e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.1)"}>
                  <LogOut /> Logout Account
+              </button>
+
+              <button onClick={() => { if(confirm("Are you absolutely sure you want to delete your account? This action cannot be undone.")) socket?.emit("delete_account"); }} style={{ padding: "16px", backgroundColor: "transparent", color: "var(--danger-color)", border: "1px solid var(--danger-color)", borderRadius: "var(--radius-md)", cursor: "pointer", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "all 0.2s" }} onMouseOver={e => e.currentTarget.style.backgroundColor = "var(--danger-color)"} onMouseOut={e => e.currentTarget.style.backgroundColor = "transparent"}>
+                 <Trash2 /> Delete Account
               </button>
             </div>
           </div>
