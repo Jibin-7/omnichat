@@ -414,8 +414,7 @@ export default function Home() {
           if (msg.isDeleted) continue;
           if (msg.type === "1on1") {
              const otherUser = msg.from === myUsername.current ? msg.to : msg.from;
-             const theirPubKey = await importPublicKey(msg.otherPublicKey);
-             const secret = await deriveSecretKey(keyPairRef.current!.privateKey, theirPubKey);
+             const secret = await deriveShared(otherUser);
              if (secret) {
                 const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
                 if (!newChats[otherUser]) newChats[otherUser] = [];
@@ -440,8 +439,7 @@ export default function Home() {
 
     const handleReceiveMessage = async (msg: any) => {
       const otherUser = msg.from;
-      const theirPubKey = await importPublicKey(msg.otherPublicKey);
-      const secret = await deriveSecretKey(keyPairRef.current!.privateKey, theirPubKey);
+      const secret = await deriveShared(otherUser);
       if (secret) {
         const { text, image, audio, file } = await decryptPayload(msg.ciphertext, msg.iv, secret);
         setChats(prev => ({ ...prev, [otherUser]: [...(prev[otherUser] || []), { id: msg.id, text, image, audio: audio || msg.audio, file: file || msg.file, sender: otherUser, timestamp: msg.timestamp, reaction: msg.reaction, reactionBy: msg.reactionBy, isDeleted: msg.isDeleted, isEdited: msg.isEdited, replyTo: msg.replyTo, isVanishMode: msg.isVanishMode }] }));
